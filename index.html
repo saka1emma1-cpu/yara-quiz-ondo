@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Yara Quiz Ondo - P2P Multiplayer</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@600;700&family=Nunito:wght@600;800&display=swap" rel="stylesheet">
+<style>body{font-family:'Nunito',sans-serif}h1,h2{font-family:'Fredoka',sans-serif}</style>
+</head>
+<body class="bg-[#FFF7E6] min-h-screen flex flex-col items-center p-4">
+<div class="w-full max-w-md">
+  <h1 class="text-3xl font-bold text-center mt-4 text-[#FF7A00]">YARA QUIZ ONDO</h1>
+  <p class="text-center text-sm text-gray-600 mb-4">Live P2P - Akure to Ondo!</p>
+  <div id="screen-home" class="bg-white rounded-[24px] p-6 shadow-lg">
+    <input id="playerName" placeholder="Your name e.g Saka" class="w-full p-3 rounded-xl border-2 border-orange-100 mb-3 focus:border-orange-400 outline-none">
+    <button onclick="createRoom()" class="w-full bg-[#FF7A00] text-white p-3 rounded-xl font-bold mb-3">CREATE ROOM (Host)</button>
+    <div class="flex gap-2">
+      <input id="roomCodeInput" placeholder="Room code e.g AB12" class="flex-1 p-3 rounded-xl border-2 border-orange-100 uppercase">
+      <button onclick="joinRoom()" class="bg-black text-white px-5 rounded-xl font-bold">JOIN</button>
+    </div>
+    <p class="text-xs text-center mt-3 text-gray-500">Supabase connected ✔️</p>
+  </div>
+  <div id="screen-lobby" class="hidden bg-white rounded-[24px] p-6 shadow-lg">
+    <h2 class="text-xl font-bold">Room: <span id="lobbyCode" class="text-[#FF7A00]"></span></h2>
+    <p class="text-sm text-gray-500 mb-3">Share code with friend. Stay here.</p>
+    <div id="playersList" class="space-y-2 mb-4"></div>
+    <button id="startBtn" onclick="startGame()" class="hidden w-full bg-green-500 text-white p-3 rounded-xl font-bold">START QUIZ (Host only)</button>
+    <p id="waitingMsg" class="text-center text-sm">Waiting for host to start...</p>
+  </div>
+  <div id="screen-game" class="hidden bg-white rounded-[24px] p-6 shadow-lg">
+    <div class="flex justify-between text-sm mb-2"><span id="qCounter"></span><span id="roomBadge" class="font-bold"></span></div>
+    <h2 id="questionText" class="text-lg font-bold mb-4"></h2>
+    <div id="options" class="space-y-2"></div>
+    <div id="scoreBoard" class="mt-4 text-sm bg-orange-50 p-3 rounded-xl"></div>
+  </div>
+  <div id="screen-end" class="hidden bg-white rounded-[24px] p-6 shadow-lg text-center">
+    <h2 class="text-2xl font-bold mb-2">Game Over!</h2>
+    <div id="finalScores" class="mb-4"></div>
+    <button onclick="location.reload()" class="w-full bg-black text-white p-3 rounded-xl">PLAY AGAIN</button>
+  </div>
+</div>
+<script type="module">
+import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.43.4/+esm'
+const SUPA_URL = 'https://mdenpqcpkeqkksozumui.supabase.co'
+const SUPA_KEY = 'sb_publishable_2iVRf_nhpfS7E6AiUXqDZQ_UpF8h4iN'
+const supabase = createClient(SUPA_URL, SUPA_KEY)
+const QUESTIONS = [
+  {q:"What is capital of Ondo State?", o:["Akure","Ondo","Owo","Idanre"], a:0},
+  {q:"Which hill is famous in Idanre?", o:["Idanre Hill","Zuma Rock","Olumo Rock","Aso Rock"], a:0},
+  {q:"Yara is slang for what in Ondo?", o:["Come","Go","Child","Money"], a:2},
+  {q:"Ondo State created in which year?", o:["1976","1996","1960","1987"], a:0},
+  {q:"Best food in Akure?", o:["Pounded Yam","Eba","Amala","All of them"], a:3},
+  {q:"Which festival is big in Ondo Town?", o:["Ogun","Odun Oba","Egungun","New Yam"], a:1},
+]
+let myId=null, myName="", roomCode="", isHost=false, currentQ=0, score=0, answered=false
+function genCode(){ return Math.random().toString(36).substring(2,6).toUpperCase() }
+window.createRoom = async () => {
+  myName = document.getElementById('playerName').value.trim()
+  if(!myName) return alert('Enter your name first')
+  roomCode = genCode(); isHost=true
+  const {error: e1} = await supabase.from('rooms').insert({code:roomCode, host_name:myName, status:'waiting', current_q:0})
+  if(e1) return alert(e1.message)
+  const {data, error} = await supabase.from('players').insert({room_code:roomCode, name:myName, is_host:true, score:0}).select().single()
+  if(error) return alert(error.message)
+  myId=data.id; enterLobby()
+}
+window.joinRoom = async () => {
+  myName = document.getElementById('playerName').value.trim()
+  roomCode = document.getElementById('roomCodeInput').value.trim().toUpperCase()
+  if(!myName||!roomCode) return alert('Name and Room code needed')
+  const {data:room} = await supabase.from('rooms').select('*').eq('code',roomCode).single()
+  if(!room) return alert('Room not found')
+  const {data, error} = await supabase.from('players').insert({room_code:roomCode, name:myName, is_host:false, score:0}).select().single()
+  if(error) return alert(error.message)
+  myId=data.id; isHost=false; enterLobby()
+}
+function enterLobby(){
+  document.getElementById('screen-home').classList.add('hidden')
+  document.getElementById('screen-lobby').classList.remove('hidden')
+  document.getElementById('lobbyCode').innerText=roomCode
+  document.getElementById('roomBadge').innerText=roomCode
+  if(isHost){document.getElementById('startBtn').classList.remove('hidden'); document.getElementById('waitingMsg').classList.add('hidden')}
+  loadPlayers()
+  supabase.channel('room-'+roomCode)
+    .on('postgres_changes',{event:'*',schema:'public',table:'players',filter:`room_code=eq.${roomCode}`}, loadPlayers)
+    .on('postgres_changes',{event:'*',schema:'public',table:'rooms',filter:`code=eq.${roomCode}`}, handleRoomChange)
+    .subscribe()
+}
+async function loadPlayers(){
+  const {data} = await supabase.from('players').select('*').eq('room_code',roomCode).order('joined_at')
+  document.getElementById('playersList').innerHTML = data.map(p=>`<div class="flex justify-between p-2 bg-orange-50 rounded-lg"><span>${p.name} ${p.is_host?'(Host)':''}</span><span class="font-bold">${p.score} pts</span></div>`).join('')
+  const my = data.find(p=>p.id===myId); if(my) score=my.score
+  document.getElementById('scoreBoard').innerHTML = data.map(p=>`${p.name}: ${p.score}`).join(' | ')
+}
+async function handleRoomChange(payload){
+  const r = payload.new
+  if(r.status==='playing'){
+    document.getElementById('screen-lobby').classList.add('hidden')
+    document.getElementById('screen-game').classList.remove('hidden')
+  }
+  if(r.status==='ended'){ showEnd(); return }
+  if(r.current_q!==currentQ || r.status==='playing'){
+    currentQ=r.current_q; showQuestion()
+  }
+}
+window.startGame = async () => {
+  await supabase.from('rooms').update({status:'playing', current_q:0}).eq('code',roomCode)
+}
+function showQuestion(){
+  if(currentQ>=QUESTIONS.length){ endGame(); return }
+  answered=false
+  const qq = QUESTIONS[currentQ]
+  document.getElementById('qCounter').innerText=`Question ${currentQ+1}/${QUESTIONS.length}`
+  document.getElementById('questionText').innerText=qq.q
+  document.getElementById('options').innerHTML = qq.o.map((opt,i)=>`<button onclick="answer(${i})" class="w-full p-3 rounded-xl border-2 border-gray-100 text-left hover:bg-orange-100">${opt}</button>`).join('')
+  loadPlayers()
+}
+window.answer = async (i) => {
+  if(answered) return
+  answered=true
+  const qq = QUESTIONS[currentQ]
+  const btns = document.getElementById('options').children
+  if(i===qq.a){
+    btns[i].classList.add('bg-green-200','border-green-400')
+    score+=10
+    await supabase.from('players').update({score}).eq('id',myId)
+  } else {
+    btns[i].classList.add('bg-red-200','border-red-400')
+    btns[qq.a].classList.add('bg-green-200')
+  }
+  setTimeout(async ()=>{
+    if(isHost){
+      if(currentQ+1>=QUESTIONS.length){
+        await supabase.from('rooms').update({status:'ended'}).eq('code',roomCode)
+      } else {
+        await supabase.from('rooms').update({current_q:currentQ+1}).eq('code',roomCode)
+      }
+    }
+  }, 1500)
+}
+async function endGame(){
+  await supabase.from('rooms').update({status:'ended'}).eq('code',roomCode)
+}
+async function showEnd(){
+  document.getElementById('screen-game').classList.add('hidden')
+  document.getElementById('screen-lobby').classList.add('hidden')
+  document.getElementById('screen-end').classList.remove('hidden')
+  const {data} = await supabase.from('players').select('*').eq('room_code',roomCode).order('score',{ascending:false})
+  document.getElementById('finalScores').innerHTML = data.map((p,i)=>`<div class="p-2 ${i===0?'bg-yellow-100 font-bold':''} rounded-lg flex justify-between"><span>${i===0?'👑 ':''}${p.name}</span><span>${p.score}</span></div>`).join('')
+}
+</script>
+</body>
+</html>
